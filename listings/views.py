@@ -1,3 +1,4 @@
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -8,7 +9,7 @@ from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from rest_framework.generics import ListAPIView
 from .serializers import InquirySerializer, PaymentSerializer
 from .models import Inquiry, Payment
-
+from django.shortcuts import get_object_or_404
 
 
 class ManageListingView(APIView):
@@ -551,7 +552,7 @@ class PayForListingView(APIView):
         except Exception as e:
             traceback.print_exc()
             return Response(
-                {'error': f'Something went wrong during payment: {str(e)}'},
+                {'error': f'Something went wrong during payment: {str(e)}'},  
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
@@ -565,3 +566,22 @@ class PaymentListView(ListAPIView):
     queryset = Payment.objects.all().order_by('-date_paid')
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAdminUser]
+
+class VerifyPaymentView(APIView):
+    def get(self, request, ref):
+        try:
+            order = get_object_or_404(Listing, ref=ref)
+            url = f'https://api.paystack.co/transaction/verify/{ref}'
+            headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
+            response = requests.get(url, headers=headers)  # Use requests library instead of request
+            response_data = response.json()
+            if response_data["status"] and response_data["data"]["status"] == "success":
+                order.payment_complete = True
+                order.save()
+                return Response({"Message": "Payment verified successfully"}, status=status.HTTP_200_OK)
+            else:
+                return Response({"Error": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
+        except Listing.DoesNotExist:
+            return Response({'error': 'Invalid payment reference'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

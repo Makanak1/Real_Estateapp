@@ -6,3 +6,9 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = user
         fields = ('name', 'email', 'is_realtor')
+        
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = user
+        fields = ['name', 'email']  # Add more fields as needed
+        extra_kwargs = {'email': {'required': True}}
