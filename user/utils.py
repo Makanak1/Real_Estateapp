@@ -4,7 +4,7 @@ from django.conf import settings
 def send_Email(email):
     subject = "Welcome on-board"
     body = ''''
-        Dear User,
+        Dear {user.name}!,
         Thank you for registering with us. We are excited to have you on board.
     
     '''

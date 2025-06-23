@@ -502,6 +502,18 @@ class MakeInquiryView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
+class PaymentView(APIView):
+    def get(self, request, id):
+        try:
+            listing = get_object_or_404(Listing, id=id)
+        except Listing.DoesNotExist:
+            return Response({'Error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'listing' :listing.id,
+            'total' :listing.amount,
+            'paystack_public_key' :settings.PAYSTACK_PUBLIC_KEY
+        }, status=status. HTTP_200_OK)
+
 class PayForListingView(APIView):
     permission_classes = (permissions.AllowAny,)
 
@@ -566,7 +578,7 @@ class PaymentListView(ListAPIView):
     queryset = Payment.objects.all().order_by('-date_paid')
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAdminUser]
-
+    
 class VerifyPaymentView(APIView):
     def get(self, request, ref):
         try:
@@ -585,3 +597,4 @@ class VerifyPaymentView(APIView):
             return Response({'error': 'Invalid payment reference'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        

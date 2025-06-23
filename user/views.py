@@ -8,6 +8,7 @@ from . utils import send_Email
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework.authentication import TokenAuthentication
+from rest_framework_simplejwt.tokens import RefreshToken
 
 # Create your views here.
 class RegisterView(APIView):
@@ -35,10 +36,11 @@ class RegisterView(APIView):
                         if not is_realtor:
                             user.objects.create_user(name=name, email=email, password=password)
                             send_Email(email)
-                            return Response(
-                                {'success':'User created successfully'},
-                                status=status.HTTP_201_CREATED
-                            )
+                            return Response({
+                                    "message":f"{name} logged in successfully",
+                                    "access_token":str(refresh.access_token),
+                                    "refresh_token":str(refresh)
+                            }, status=status.HTTP_200_OK)
                         else:
                             user.objects.create_realtor(name=name, email=email, password=password)
 
@@ -68,7 +70,7 @@ class RegisterView(APIView):
             )
 
 class LoginView(APIView):
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         email = request.data.get('email', '').lower()
@@ -90,7 +92,7 @@ class LoginView(APIView):
         return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
     
 class LogoutView(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
     authentication_classes = (TokenAuthentication,)
 
     def post(self, request):
@@ -98,7 +100,7 @@ class LogoutView(APIView):
         return Response({'success': 'Logged out successfully'}, status=status.HTTP_200_OK)
     
 class UserUpdateView(APIView):
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
     authentication_classes = (TokenAuthentication,)
 
     def put(self, request):
