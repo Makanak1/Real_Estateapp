@@ -10,5 +10,13 @@ class UserSerializer(serializers.ModelSerializer):
 class UserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = user
-        fields = ['name', 'email']  # Add more fields as needed
-        extra_kwargs = {'email': {'required': True}}
+        fields = ['name', 'email','password']  # Add more fields as needed
+        extra_kwargs = {
+            'email': {'required': True},
+            'name': {'required': True},
+        }
+        
+    def update(self, instance, validated_data):
+        # Prevent password from being saved here
+        validated_data.pop('password', None)
+        return super().update(instance, validated_data)

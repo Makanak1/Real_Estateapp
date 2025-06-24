@@ -14,7 +14,18 @@ class InquirySerializer(serializers.ModelSerializer):
         read_only_fields = ['date_sent']
         
 class PaymentSerializer(serializers.ModelSerializer):
+    listing_title = serializers.CharField(source='listing.title', read_only=True)
+
     class Meta:
         model = Payment
-        fields = '__all__'
-        read_only_fields = ['date_paid']
+        fields = [
+            'id',
+            'listing',
+            'listing_title',
+            'user_email',
+            'amount',
+            'reference',
+            'status',
+            'date_paid',
+        ]
+        read_only_fields = ['reference', 'status', 'date_paid']

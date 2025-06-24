@@ -8,8 +8,8 @@ from . utils import send_Email
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework.authentication import TokenAuthentication
-from rest_framework_simplejwt.tokens import RefreshToken
-
+from rest_framework_simplejwt.tokens import RefreshToken,TokenError
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 # Create your views here.
 class RegisterView(APIView):
     permission_classes = (permissions.AllowAny,)
@@ -70,47 +70,66 @@ class RegisterView(APIView):
             )
 
 class LoginView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
+        
         email = request.data.get('email', '').lower()
         password = request.data.get('password', '')
 
-        user_obj = authenticate(request, email=email, password=password)
-        if user_obj is not None:
-            token, created = Token.objects.get_or_create(user=user_obj)
+        user = authenticate(request, email=email, password=password)
+        if user is not None:
+            refresh = RefreshToken.for_user(user)
+
             return Response({
-                'message': 'Login successful',
-                'token': token.key,
-                'user': {
-                    'name': user_obj.name,
-                    'email': user_obj.email,
-                    'is_realtor': user_obj.is_realtor
-                }
+                "message": f"{user.name} logged in successfully",
+                "access_token": str(refresh.access_token),
+                "refresh_token": str(refresh),
+                "is_realtor": user.is_realtor
             }, status=status.HTTP_200_OK)
+
+        return Response({
+            "error": "Invalid credentials"
+        }, status=status.HTTP_401_UNAUTHORIZED)
         
-        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
-    
 class LogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    authentication_classes = (TokenAuthentication,)
 
     def post(self, request):
-        request.user.auth_token.delete()
-        return Response({'success': 'Logged out successfully'}, status=status.HTTP_200_OK)
+        try:
+            refresh_token = request.data.get("refresh_token")
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({"success": "Logged out successfully"}, status=status.HTTP_200_OK)
+        except TokenError:
+            return Response({"error": "Invalid or expired token"}, status=status.HTTP_400_BAD_REQUEST)
     
 class UserUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     authentication_classes = (TokenAuthentication,)
 
     def put(self, request):
-        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        user = request.user
+        data = request.data.copy()
+
+        # Extract password if provided
+        password = data.pop('password', None)
+
+        serializer = UserUpdateSerializer(user, data=data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response({'success': 'Profile updated successfully'})
+
+            # Set and save new password securely
+            if password:
+                user.set_password(password)
+                user.save()
+
+            return Response({'success': 'Profile updated successfully'}, status=status.HTTP_200_OK)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class RetrieveUserView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
     def get(self, request, format=None):
         try:
             user = request.user

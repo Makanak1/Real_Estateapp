@@ -54,10 +54,16 @@ class Inquiry(models.Model):
 
 
 class Payment(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
     listing = models.OneToOneField(Listing, on_delete=models.CASCADE, related_name='payment')
     user_email = models.EmailField(max_length=255)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     reference = models.CharField(max_length=100, unique=True)
+    status = models.CharField(max_length=20, default='Pending')
     date_paid = models.DateTimeField(default=now)
 
     def __str__(self):

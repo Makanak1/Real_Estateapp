@@ -1,4 +1,5 @@
 import requests
+import uuid
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -10,16 +11,18 @@ from rest_framework.generics import ListAPIView
 from .serializers import InquirySerializer, PaymentSerializer
 from .models import Inquiry, Payment
 from django.shortcuts import get_object_or_404
-
+from rest_framework.permissions import IsAuthenticated
 
 class ManageListingView(APIView):
+    permission_classes = [IsAuthenticated]
+    
     def get(self, request, format=None): 
         try:
             user = request.user
 
             if not user.is_realtor:
                 return Response(
-                    {'error': 'user does not have necessary permissions for geting the Listing data'},
+                    {'error': 'user does not have necessary permissions for getting the Listing data'},
                     status=status.HTTP_403_FORBIDDEN
                 )
             
@@ -382,6 +385,8 @@ class ManageListingView(APIView):
                 
 
 class ListingDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    
     def get(self, request, format=None):
         try:
             slug = request.query_params.get('slug')
@@ -408,6 +413,8 @@ class ListingDetailView(APIView):
             )
         
 class ListingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
     def get(self, request, format=None):
         try:
             if not Listing.objects.filter(is_published=True).exists():
@@ -428,41 +435,36 @@ class ListingsView(APIView):
             )
             
 class SearchListingsView(APIView):
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = [IsAuthenticated]
     
     def get(self, request, format=None):
         try:
             search = request.query_params.get('search')
-            
+            if not search:
+                return Response({'error': 'Search term is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            query = SearchQuery(search)
             listings = Listing.objects.annotate(
                 search=SearchVector('title', 'description', 'address', 'city', 'state', 'zip_code')
             ).filter(
-                search=SearchQuery(search),
+                search=query,
                 is_published=True
             ).order_by(
-                SearchRank('search', SearchQuery(search))
+                SearchRank('search', query)
             )
-            
-            print('Listings:')
-            print(listings)
-            for listing in listings:
-                print(listing.title)
-            
-            return Response(
-                {'success': 'Everything went ok'},
-                status=status.HTTP_200_OK
-            )
-            
+
+            serializer = ListingSerializer(listings, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
         except Exception as e:
-            traceback.print_exc()  # This prints the stack trace to the console
+            traceback.print_exc()
             return Response(
-                {'error': f'Something went wrong when searching for  listing: {str(e)}'},
+                {'error': f'Something went wrong when searching for listing: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
-            
 class MakeInquiryView(APIView):
-    permission_classes = (permissions.AllowAny,)
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:
@@ -501,100 +503,146 @@ class MakeInquiryView(APIView):
                 {'error': f'Error making inquiry: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-            
-class PaymentView(APIView):
-    def get(self, request, id):
-        try:
-            listing = get_object_or_404(Listing, id=id)
-        except Listing.DoesNotExist:
-            return Response({'Error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
-        return Response({
-            'listing' :listing.id,
-            'total' :listing.amount,
-            'paystack_public_key' :settings.PAYSTACK_PUBLIC_KEY
-        }, status=status. HTTP_200_OK)
-
-class PayForListingView(APIView):
-    permission_classes = (permissions.AllowAny,)
-
+class InitiatePaymentView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
     def post(self, request):
         try:
             data = request.data
             slug = data.get('slug')
             email = data.get('email')
-            amount = data.get('amount')
-            reference = data.get('reference')
+            amount = data.get('amount')  # in Naira
 
-            if not (slug and email and amount and reference):
-                return Response(
-                    {'error': 'slug, email, amount, and reference are required'},
-                    status=status.HTTP_400_BAD_REQUEST
+            if not all([slug, email, amount]):
+                return Response({'error': 'slug, email, and amount are required'}, status=400)
+
+            # Verify listing exists
+            listing = get_object_or_404(listing, slug=slug, is_published=True)
+
+            reference = str(uuid.uuid4())  # Unique reference
+
+            # Initiate transaction with Paystack
+            url = 'https://api.paystack.co/transaction/initialize'
+            headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
+            payload = {
+                "email": email,
+                "amount": int(amount) * 100,  
+                "reference": reference
+            }
+
+            response = requests.post(url, headers=headers, json=payload)
+            response_data = response.json()
+
+            if response_data.get("status") is True:
+                # Save the payment as pending
+                Payment.objects.create(
+                    listing=listing,
+                    user_email=email,
+                    amount=amount,
+                    reference=reference,
+                    status="pending"  
                 )
-
-            try:
-                listing = Listing.objects.get(slug=slug, is_published=True)
-            except Listing.DoesNotExist:
-                return Response(
-                    {'error': 'Listing not found or already unavailable'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            if Payment.objects.filter(reference=reference).exists():
-                return Response(
-                    {'error': 'This payment reference has already been used'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            Payment.objects.create(
-                listing=listing,
-                user_email=email,
-                amount=amount,
-                reference=reference
-            )
-
-            # Mark the listing as no longer published
-            listing.is_published = False
-            listing.save()
-
-            return Response(
-                {'success': 'Payment successful. Listing marked as unavailable.'},
-                status=status.HTTP_200_OK
-            )
+                payment_url = response_data["data"]["authorization_url"]
+                return Response({
+                    "payment_url": payment_url,
+                    "reference": reference
+                }, status=200)
+            else:
+                return Response({"error": "Failed to initiate payment"}, status=400)
 
         except Exception as e:
-            traceback.print_exc()
-            return Response(
-                {'error': f'Something went wrong during payment: {str(e)}'},  
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({"error": str(e)}, status=500)
+
+# class PayForListingView(APIView):
+#     permission_classes = (permissions.AllowAny,)
+
+#     def post(self, request):
+#         try:
+#             data = request.data
+#             slug = data.get('slug')
+#             email = data.get('email')
+#             amount = data.get('amount')
+#             reference = data.get('reference')
+
+#             if not (slug and email and amount and reference):
+#                 return Response(
+#                     {'error': 'slug, email, amount, and reference are required'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+
+#             try:
+#                 listing = Listing.objects.get(slug=slug, is_published=True)
+#             except Listing.DoesNotExist:
+#                 return Response(
+#                     {'error': 'Listing not found or already unavailable'},
+#                     status=status.HTTP_404_NOT_FOUND
+#                 )
+
+#             if Payment.objects.filter(reference=reference).exists():
+#                 return Response(
+#                     {'error': 'This payment reference has already been used'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+
+#             Payment.objects.create(
+#                 listing=listing,
+#                 user_email=email,
+#                 amount=amount,
+#                 reference=reference
+#             )
+
+#             # Mark the listing as no longer published
+#             listing.is_published = False
+#             listing.save()
+
+#             return Response(
+#                 {'success': 'Payment successful. Listing marked as unavailable.'},
+#                 status=status.HTTP_200_OK
+#             )
+
+#         except Exception as e:
+#             traceback.print_exc()
+#             return Response(
+#                 {'error': f'Something went wrong during payment: {str(e)}'},  
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
             
 class InquiryListView(ListAPIView):
     queryset = Inquiry.objects.all().order_by('-date_sent')
     serializer_class = InquirySerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
 
 
 class PaymentListView(ListAPIView):
     queryset = Payment.objects.all().order_by('-date_paid')
     serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.IsAdminUser,permissions.IsAuthenticated]
     
 class VerifyPaymentView(APIView):
     def get(self, request, ref):
         try:
-            order = get_object_or_404(Listing, ref=ref)
-            url = f'https://api.paystack.co/transaction/verify/{ref}'
+            payment = get_object_or_404(Payment, reference=ref)
+            url = f"https://api.paystack.co/transaction/verify/{ref}"
             headers = {"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"}
-            response = requests.get(url, headers=headers)  # Use requests library instead of request
+
+            response = requests.get(url, headers=headers)
             response_data = response.json()
+
             if response_data["status"] and response_data["data"]["status"] == "success":
-                order.payment_complete = True
-                order.save()
-                return Response({"Message": "Payment verified successfully"}, status=status.HTTP_200_OK)
-            else:
-                return Response({"Error": "Payment verification failed"}, status=status.HTTP_400_BAD_REQUEST)
-        except Listing.DoesNotExist:
-            return Response({'error': 'Invalid payment reference'}, status=status.HTTP_400_BAD_REQUEST)
+                # Mark payment as completed
+                payment.status = "completed"  
+                payment.save()
+
+                # Mark listing as unpublished
+                listing = payment.listing
+                listing.is_published = False
+                listing.save()
+
+                return Response({"message": "Payment verified successfully"}, status=200)
+
+            return Response({"error": "Payment verification failed"}, status=400)
+
+        except Payment.DoesNotExist:
+            return Response({"error": "Invalid payment reference"}, status=400)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+            return Response({"error": str(e)}, status=500)
