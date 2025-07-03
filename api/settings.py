@@ -19,9 +19,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = str( os.getenv('SECRET_KEY'))
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost']
 
 
 # Application definition
@@ -90,6 +90,11 @@ DATABASES = {
         'PASSWORD': 'Aliyulaih11',
     }
 }
+
+if  os.getenv('DATABASE_URL'):
+    DATABASES = {
+        'default': dj_database_url.parse(os.environ['DATABASE_URL'])
+            }
 
 DATABASE_ROUTERS = ['user.router.AuthRouter', 'listings.router.ListingRouter']
 # Password validation
