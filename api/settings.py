@@ -21,7 +21,7 @@ SECRET_KEY = str( os.getenv('SECRET_KEY'))
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = ['localhost','https://real-estateapp-xxm0.onrender.com','real-estateapp-xxm0.onrender.com']
+ALLOWED_HOSTS = ['localhost:8000','https://real-estateapp-xxm0.onrender.com','real-estateapp-xxm0.onrender.com']
 
 
 # Application definition
@@ -163,6 +163,7 @@ EMAIL_USE_SSL = True
 # Paystack settings
 PAYSTACK_SECRET_KEY = str(os.getenv('PAYSTACK_SECRET_KEY'))
 PAYSTACK_PUBLIC_KEY = str(os.getenv('PAYSTACK_PUBLIC_KEY'))
+PAYSTACK_BASE_URL = 'https://api.paystack.co'
 
 
 SIMPLE_JWT = {
