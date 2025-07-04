@@ -73,28 +73,35 @@ WSGI_APPLICATION = 'api.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {},
-    'users': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'listingz_user',
-        'HOST': 'localhost',
-        'USER': 'postgres',
-        'PASSWORD': 'Aliyulaih11',
-    },
-    'listings': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'listingz_listings',
-        'HOST': 'localhost',
-        'USER': 'postgres',
-        'PASSWORD': 'Aliyulaih11',
-    }
-}
+# DATABASES = {
+#     'default': {},
+#     'users': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'listingz_user',
+#         'HOST': 'localhost',
+#         'USER': 'postgres',
+#         'PASSWORD': 'Aliyulaih11',
+#     },
+#     'listings': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'listingz_listings',
+#         'HOST': 'localhost',
+#         'USER': 'postgres',
+#         'PASSWORD': 'Aliyulaih11',
+#     }
+# }
 
 if  os.getenv('DATABASE_URL'):
     DATABASES = {
         'default': dj_database_url.parse(os.environ['DATABASE_URL'])
             }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 DATABASE_ROUTERS = ['user.router.AuthRouter', 'listings.router.ListingRouter']
 # Password validation
